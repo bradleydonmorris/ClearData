@@ -1,0 +1,28 @@
+[project]
+name = "ClearData"
+version = "1.0.5"
+authors = [
+    { name = "Bradley Morris", email = "bradleydonmorris@hotmail.com" },
+]
+description = "Utility library for accessing Data providers in a uniform way."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/bradleydonmorris/ClearData"
+Issues = "https://github.com/bradleydonmorris/ClearData/issues"
+
+[tool.setuptools]
+py-modules = []
+
+[build-system]
+requires = [ "hatchling" ]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ClearData"]
