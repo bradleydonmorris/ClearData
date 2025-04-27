@@ -80,13 +80,13 @@ class SQLServerParameter:
 
 	@staticmethod
 	def CreateDateTime2Input(name:str, size:int, value:DateTime):
-		if size not in range(0, 7):
+		if size not in range(0, 8):
 			raise ValueError('Size must be an integer between 0 and 7.')
 		return SQLServerParameter(name, SqlDbType.DateTime2, ParameterDirection.Input, value, size)
 
 	@staticmethod
 	def CreateDateTime2Output(sqlCommand:SqlClient.SqlCommand, name:str, size:int):
-		if size not in range(0, 7):
+		if size not in range(0, 8):
 			raise ValueError('Size must be an integer between 0 and 7.')
 		return SQLServerParameter(name, SqlDbType.DateTime2, ParameterDirection.Output, None, size)
 
@@ -245,7 +245,7 @@ class _SQLServerParametersHelpers:
 
 	@staticmethod
 	def AddDateTime2Input(sqlCommand:SqlClient.SqlCommand, name:str, size:int, value:DateTime):
-		if size not in range(0, 7):
+		if size not in range(0, 8):
 			raise ValueError('Size must be an integer between 0 and 7.')
 		sqlParameter = sqlCommand.CreateParameter()
 		sqlParameter.ParameterName = name
@@ -257,7 +257,7 @@ class _SQLServerParametersHelpers:
 
 	@staticmethod
 	def AddDateTime2Output(sqlCommand:SqlClient.SqlCommand, name:str, size:int):
-		if size not in range(0, 7):
+		if size not in range(0, 8):
 			raise ValueError('Size must be an integer between 0 and 7.')
 		sqlParameter = sqlCommand.CreateParameter()
 		sqlParameter.ParameterName = name
@@ -496,6 +496,11 @@ class SQLServerStoredProcedures(IStoredProcedures):
 		try:
 			sqlConnection = SqlClient.SqlConnection(self.ConnectionString)
 			sqlConnection.Open()
+			
+			#sqlCommand = SqlClient.SqlCommand(f"SET ANSI_NULLS, ANSI_WARNINGS ON", sqlConnection)
+			#sqlCommand.CommandType = CommandType.Text
+			#sqlCommand.ExecuteNonQuery()
+
 			sqlCommand = SqlClient.SqlCommand(f"[{schema}].[{name}]", sqlConnection)
 			sqlCommand.CommandType = CommandType.StoredProcedure
 			sqlCommand.CommandTimeout = 0
