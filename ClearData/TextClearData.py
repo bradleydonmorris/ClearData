@@ -14,23 +14,120 @@ from System.Data import DataRow
 from System.Data import DataColumn
 
 
+class FixedWidthJustification(Enum):
+	Left = 1
+	Right = 2
+
 class TextFileFormat(Enum):
-	CommaWithHeader = 1
-	CommaWithoutHeader = 2
-	TabWithHeader = 3
-	TabWithoutHeader = 4
-	PipeWithHeader = 5
-	PipeWithoutHeader = 6
-	Prettify = 7,
-	FixedWidth = 8
+	Delimited = 1
+	Prettify = 2
+	FixedWidth = 3
+
+class TextFileQuoting(Enum):
+	Minimal = 0
+	All = 1
+	NonNumberic = 2
+	NoQuotes = 3
+	Strings = 4
+	NotNull = 5
+
+	def ToCSVConstant(self) -> int|None:
+		returnValue:int|None = None
+		match (self):
+			case TextFileQuoting.Minimal: returnValue = csv.QUOTE_MINIMAL
+			case TextFileQuoting.All: returnValue = csv.QUOTE_ALL
+			case TextFileQuoting.NonNumberic: returnValue = csv.QUOTE_NONNUMERIC
+			case TextFileQuoting.NoQuotes: returnValue = csv.QUOTE_NONE
+			case TextFileQuoting.Strings: returnValue = csv.QUOTE_STRINGS
+			case TextFileQuoting.NotNull: returnValue = csv.QUOTE_NOTNULL
+			case _: raise ValueError("Unknown")
+		return returnValue
+
+class DelimitedFileConfig:
+	Quoting:TextFileQuoting|None = None
+	FieldDelimiter:str = ","
+	RowDelimiter:str = "\n"
+	HasHeader:bool = False,
+	QuoteCharacter:str = '"'
+
+	def __init__(self, quoting:TextFileQuoting, fieldDelimiter:str=",", rowDelimiter:str="\n", hasHeader:bool=False):
+		self.Quoting = quoting
+		self.FieldDelimiter = fieldDelimiter
+		self.RowDelimiter = rowDelimiter
+		self.HasHeader = hasHeader
+
+class FixedWidthFileColumn:
+	Ordinal:int|None = None
+	Name:str|None=None
+	BeginPosition:int|None = None
+	EndPosition:int|None = None
+	Justification:FixedWidthJustification = FixedWidthJustification.Left
+	JustificationCharacter:str|None = " "
+	Length:int = 0
+	TrimJustificationCharacters:bool = False
+
+	def __init__(self,
+					ordinal:int|None=None, name:int|None=None,
+					beginPosition:int|None=None, endPosition:int|None=None,
+					justification:FixedWidthJustification = FixedWidthJustification.Left,
+					justificationCharacter:str|None=" ",
+					trimJustificationCharacters:bool=False):
+		self.Ordinal = ordinal
+		self.Name = name
+		self.BeginPosition = beginPosition
+		self.EndPosition = endPosition
+		self.Justification = justification
+		self.JustificationCharacter = justificationCharacter
+		self.TrimJustificationCharacters = trimJustificationCharacters
+		self.Length = (self.EndPosition - self.BeginPosition) + 1
+
+class FixedWidthFileColumns(list):
+	LastUsedOrdinal:int = 0
+
+	def __len__(self):
+		return super().__len__()
+
+	def __iter__(self):
+		return super().__iter__()
+
+	def __getitem__(self, item):
+		return super()[item]
+
+	def __init__(self) -> None:
+		super().__init__()
+
+	def append(self, object:FixedWidthFileColumn):
+		if (object.Ordinal is None):
+			self.LastUsedOrdinal += 1
+			object.Ordinal = self.LastUsedOrdinal
+		elif (object.Ordinal == 0):
+			self.LastUsedOrdinal += 1
+			object.Ordinal = self.LastUsedOrdinal
+		super().append(object)
+
+	def append(self, object:FixedWidthFileColumn):
+		if (object.Ordinal is None):
+			self.LastUsedOrdinal += 1
+			object.Ordinal = self.LastUsedOrdinal
+		elif (object.Ordinal == 0):
+			self.LastUsedOrdinal += 1
+			object.Ordinal = self.LastUsedOrdinal
+		super().append(object)
+
+	def GetColumn(name:str) -> FixedWidthFileColumn|None:
+		return next(filter(lambda x: x.Name == name,  super()), None)
 
 class TextQueries(IQueries):
 	FilePath:Path = None
-	Format:TextFileFormat = TextFileFormat.CommaWithHeader
+	Format:TextFileFormat = TextFileFormat.Delimited
+	Columns:FixedWidthFileColumns|None = None
+	DelimitedConfig:DelimitedFileConfig|None = None
 
-	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.CommaWithHeader):
+	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.Delimited, delimitedConfig:DelimitedFileConfig|None = None, fixedWidthColumns:FixedWidthFileColumns|None = None):
 		self.FilePath = filePath
 		self.Format = format
+		self.Columns = fixedWidthColumns
+		self.DelimitedConfig = delimitedConfig
 
 	def Execute(self, query:str, parameters = None):
 		raise NotImplementedError()
@@ -46,22 +143,9 @@ class TextQueries(IQueries):
 
 	def TruncateTable(self):
 		header:str = None
-		contents:str = self.FilePath.read_text()
-		match self.Format:
-			case TextFileFormat.CommaWithHeader:
-				header = contents.split("\n")[0]
-			case TextFileFormat.CommaWithoutHeader:
-				header = ""
-
-			case TextFileFormat.TabWithHeader:
-				header = contents.split("\n")[0]
-			case TextFileFormat.TabWithoutHeader:
-				header = ""
-
-			case TextFileFormat.PipeWithHeader:
-				header = contents.split("\n")[0]
-			case TextFileFormat.PipeWithoutHeader:
-				header = ""
+		if (self.Format == TextFileFormat.Delimited
+			and self.DelimitedConfig.HasHeader):
+			header = self.FilePath.read_text().split(self.DelimitedConfig.RowDelimiter)[0]
 		self.FilePath.write_text(header)
 
 	def GetRowCount(self) -> int:
@@ -81,26 +165,32 @@ class TextQueries(IQueries):
 
 class TextBulkData:
 	FilePath:Path = None
-	Format:TextFileFormat = TextFileFormat.CommaWithHeader
-	FixedWidthConfig:dict|None = None
+	Format:TextFileFormat = TextFileFormat.Delimited
+	FixedWidthColumns:FixedWidthFileColumns|None = None
+	DelimitedConfig:DelimitedFileConfig|None = None
 
-	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.CommaWithHeader, fixedWidthConfig:dict|None = None):
+	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.Delimited, delimitedConfig:DelimitedFileConfig|None = None, fixedWidthColumns:FixedWidthFileColumns|None = None):
 		self.FilePath = filePath
 		self.Format = format
-		self.FixedWidthConfig = fixedWidthConfig
+		self.FixedWidthColumns = fixedWidthColumns
+		self.DelimitedConfig = delimitedConfig
 
-	def __GetDataTableDelimited__(self, fieldDelimiter:str, rowDelimiter:str, includeHeader:bool) -> DataTable:
+	def __GetDataTableDelimited__(self) -> DataTable:
 		returnValue:DataTable = None
-		with open(self.FilePath, newline='') as file:
+		with open(self.FilePath, newline='', encoding="UTF-8") as file:
 			returnValue = DataTable()
-			reader = csv.reader(file, delimiter=fieldDelimiter, lineterminator=rowDelimiter)
+			reader = csv.reader(file,
+						delimiter=self.DelimitedConfig.FieldDelimiter,
+						lineterminator=self.DelimitedConfig.RowDelimiter,
+						quotechar=self.DelimitedConfig.QuoteCharacter,
+						quoting=self.DelimitedConfig.Quoting.ToCSVConstant())
 			rowNumber:int = 0
-			for reader in reader:
+			for row in reader:
 				rowNumber += 1
 				if (rowNumber == 1):
 					columns:list = []
-					if (includeHeader):
-						for item in reader:
+					if (self.DelimitedConfig.HasHeader):
+						for item in row:
 							columnName:str = item
 							dupeIndex:int = 0
 							while (columns.count(columnName) > 0):
@@ -108,112 +198,78 @@ class TextBulkData:
 								columnName = f"{columnName}_{dupeIndex}"
 							columns.append(columnName)
 					else:
-						columns = ["Field_{}".format(x, y) for (x, y) in enumerate(reader)]
+						columns = ["Field_{}".format(x, y) for (x, y) in enumerate(row)]
 					for columnName in columns:
 						dataColumn:DataColumn = DataColumn(columnName)
 						dataColumn.DataType = System.Type.GetType("System.String")
 						dataColumn.AllowDBNull  = True
 						returnValue.Columns.Add(dataColumn)
-					if (not includeHeader):
+					if (not self.DelimitedConfig.HasHeader):
 						dataRow:DataRow = returnValue.NewRow()
-						for index, item in enumerate(reader):
+						for index, item in enumerate(row):
 							dataRow[index] = item
 						returnValue.Rows.Add(dataRow)
 				else:
 					dataRow:DataRow = returnValue.NewRow()
-					for index, item in enumerate(reader):
+					for index, item in enumerate(row):
 						dataRow[index] = item
 					returnValue.Rows.Add(dataRow)
 		return returnValue
 
 	def __GetDataTableFixedWidth__(self) -> DataTable:
 		returnValue:DataTable = DataTable()
-		for fieldKey in self.FixedWidthConfig.keys():
-			dataColumn:DataColumn = DataColumn(fieldKey)
+		for fixedWidthColumn in self.FixedWidthColumns:
+			dataColumn:DataColumn = DataColumn(fixedWidthColumn.Name)
 			dataColumn.DataType = System.Type.GetType("System.String")
 			dataColumn.AllowDBNull  = True
 			returnValue.Columns.Add(dataColumn)
 		for lineIndex, lineText in enumerate(self.FilePath.read_text().splitlines()):
 			values:list[str] = list[str]()
-			for fieldKey in self.FixedWidthConfig.keys():
-				begin:int = self.FixedWidthConfig[fieldKey]["Begin"]
-				end:int = self.FixedWidthConfig[fieldKey]["End"]
-				values.append(lineText[(begin-1):end])
-				returnValue.Rows.Add(values)
+			for fixedWidthColumn in self.FixedWidthColumns:
+				value:str = lineText[(fixedWidthColumn.BeginPosition-1):fixedWidthColumn.EndPosition]
+				if (fixedWidthColumn.TrimJustificationCharacters):
+					if (fixedWidthColumn.Justification == FixedWidthJustification.Right):
+						value = value.rstrip(fixedWidthColumn.JustificationCharacter)
+					elif (fixedWidthColumn.Justification == FixedWidthJustification.Left):
+						value = value.lstrip(fixedWidthColumn.JustificationCharacter)
+				values.append(value)
+			returnValue.Rows.Add(values)
 		return returnValue
 
-	def __WriteDataTableDelimited__(self, dataTable:DataTable, fieldDelimiter:str, rowDelimiter:str, includeHeader:bool):
-		returnValue:str = None
-		exception = None
-		try:
-			lines:list = []
-			line:str = None
-			line = ""
-			if (includeHeader):
+	def __WriteDataTableDelimited__(self, dataTable:DataTable):
+		with open(self.FilePath, newline='', encoding="UTF-8") as file:
+			writer = csv.writer(file,
+					delimiter=self.DelimitedConfig.FieldDelimiter,
+					lineterminator=self.DelimitedConfig.RowDelimiter,
+					quotechar=self.DelimitedConfig.QuoteCharacter,
+					quoting=self.DelimitedConfig.Quoting.ToCSVConstant())
+			if (self.DelimitedConfig.HasHeader):
+				header:list[str] = list[str]()
 				for dataColumn in dataTable.Columns:
-					line += f"{dataColumn.ColumnName}{fieldDelimiter}"
-				if (line.endswith(fieldDelimiter)):
-					line = line[:-len(fieldDelimiter)]
-				lines.append(line)
-				line = ""
+					header.append(dataColumn.ColumnName)
+				writer.writerow(header)
 			for dataRow in dataTable.Rows:
-				line = ""
+				values:list[any] = list[any]()
 				for dataColumn in dataTable.Columns:
-					if (str(dataColumn.DataType) in [
-						"System.Byte",
-						"System.Int16",
-						"System.Int32",
-						"System.Int64",
-						"System.Decimal"]):
-						line += f"{str(dataRow[dataColumn.ColumnName])}{fieldDelimiter}"
-					else:
-						line += f"{str(dataRow[dataColumn.ColumnName])}{fieldDelimiter}"
-				if (line.endswith(fieldDelimiter)):
-					line = line[:-len(fieldDelimiter)]
-				lines.append(line)
-			returnValue = ""
-			for ln in lines:
-				returnValue += f"{ln}{rowDelimiter}"
-		except Exception as e:
-			exception = e
-		if exception is not None:
-			raise exception
-		elif returnValue is not None:
-			return returnValue
+					values.append(dataRow[dataColumn.ColumnName])
+				writer.writerow(values)
 
-	def __WriteDataTableFixedWidth__(self, dataTable:DataTable, rowDelimiter:str):
-		returnValue:str = None
-		exception = None
-		try:
-			lines:list = []
-			line:str = None
+	def __WriteDataTableFixedWidth__(self, dataTable:DataTable):
+		rowDelimiter:str = "\n"
+		lines:list = []
+		line:str = None
+		line = ""
+		for dataRow in dataTable.Rows:
 			line = ""
-			for dataRow in dataTable.Rows:
-				line = ""
-				for dataColumn in dataTable.Columns:
-					if (dataColumn.ColumnName in self.FixedWidthConfig):
-						begin:int = self.FixedWidthConfig[dataColumn.ColumnName]["Begin"]
-						end:int = self.FixedWidthConfig[dataColumn.ColumnName]["End"]
-						legnth:int = (end - begin) + 1
-						if (str(dataColumn.DataType) in [
-							"System.Byte",
-							"System.Int16",
-							"System.Int32",
-							"System.Int64",
-							"System.Decimal"]):
-							line += f"{str(dataRow[dataColumn.ColumnName]).ljust(legnth)}"
-						else:
-							line += f"{str(dataRow[dataColumn.ColumnName]).ljust(legnth)}"
-				lines.append(line)
-			returnValue = ""
-			for ln in lines:
-				returnValue += f"{ln}{rowDelimiter}"
-		except Exception as e:
-			exception = e
-		if exception is not None:
-			raise exception
-		elif returnValue is not None:
-			return returnValue
+			for dataColumn in dataTable.Columns:
+				fixedWidthFileColumn:FixedWidthFileColumn|None = self.FixedWidthColumns.GetColumn(dataColumn.ColumnName)
+				if (fixedWidthFileColumn is not None):
+					if (fixedWidthFileColumn.Justification == FixedWidthJustification.Left):
+						line += str(dataRow[dataColumn.ColumnName]).ljust(fixedWidthFileColumn.Length, fixedWidthFileColumn.JustificationCharacter)
+					if (fixedWidthFileColumn.Justification == FixedWidthJustification.Right):
+						line += str(dataRow[dataColumn.ColumnName]).rjust(fixedWidthFileColumn.Length, fixedWidthFileColumn.JustificationCharacter)
+			lines.append(line)
+		self.FilePath.write_text(rowDelimiter.join(lines))
 
 	def __WriteDataTablePrettify__(self, dataTable:DataTable):
 		returnValue:str = None
@@ -266,30 +322,25 @@ class TextBulkData:
 		elif returnValue is not None:
 			return returnValue
 
-	def GetDataTable(self) -> DataTable:
-		returnValue:DataTable | None = None
-		if (self.Format == TextFileFormat.FixedWidth):
-			returnValue = self.__GetDataTableFixedWidth__()
-		else:
-			fieldDelimiter, rowDelimiter, includeHeader = TextClearData.ConvertFixedWidthToDelimited(self.Format)
-			returnValue = self.__GetDataTableDelimited__(fieldDelimiter, rowDelimiter, includeHeader)
+	def GetDataTable(self) -> DataTable|None:
+		returnValue:DataTable|None = None
+		match (self.Format):
+			case TextFileFormat.Delimited:
+				returnValue = self.__GetDataTableDelimited__()
+			case TextFileFormat.FixedWidth:
+				returnValue = self.__GetDataTableFixedWidth__()
+			case _:
+				returnValue = None
 		return returnValue
 
 	def WriteDataTable(self, dataTable:DataTable):
-		exception = None
-		try:
-			text:str = None
-			fieldDelimiter, rowDelimiter, includeHeader = TextClearData.ConvertFixedWidthToDelimited(self.Format)
-			if (self.Format == TextFileFormat.FixedWidth):
-				text = self.__WriteDataTableFixedWidth__(dataTable, rowDelimiter)
-			else:
-				text = self.__WriteDataTableDelimited__(dataTable, fieldDelimiter, rowDelimiter, includeHeader)
-			if (text is not None):
-				self.FilePath.write_text(text)
-		except Exception as e:
-			exception = e
-		if exception is not None:
-			raise exception
+		match (self.Format):
+			case TextFileFormat.Delimited:
+				returnValue = self.__WriteDataTableDelimited__(dataTable)
+			case TextFileFormat.FixedWidth:
+				returnValue = self.__WriteDataTableFixedWidth__(dataTable)
+			case _:
+				returnValue = None
 
 	def GetDataFrame(self, schema:str = None, tableOrView:str = None, options:dict = None) -> pandas.DataFrame:
 		raise NotImplementedError()
@@ -299,17 +350,23 @@ class TextBulkData:
 
 class TextClearData(IClearData):
 	FilePath:Path = None
-	Format:TextFileFormat = TextFileFormat.CommaWithHeader
+	Format:TextFileFormat = TextFileFormat.Delimited
 
 	@property
 	def StoredProcedures(self):
 		raise NotImplementedError("TextClearData does not implement IStoredProcedures")
 
-	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.CommaWithHeader, fixedWidthConfig:dict|None = None):
+	def __init__(self, filePath:Path, format:TextFileFormat = TextFileFormat.Delimited, delimitedConfig:DelimitedFileConfig|None = None, fixedWidthColumns:FixedWidthFileColumns|None = None):
+		if (format == TextFileFormat.Delimited
+			and delimitedConfig is None):
+			raise ValueError("If format is delimited, then delimitedConfig must be provided")
+		if (format == TextFileFormat.FixedWidth
+			and fixedWidthColumns is None):
+			raise ValueError("If format is fixed wicth, then fixedWidthColumns must be provided")
 		self.FilePath = filePath
 		self.Format = format
-		self.Queries = TextQueries(filePath, format)
-		self.BulkData = TextBulkData(filePath, format, fixedWidthConfig)
+		self.Queries = TextQueries(filePath, format, delimitedConfig, fixedWidthColumns)
+		self.BulkData = TextBulkData(filePath, format, delimitedConfig, fixedWidthColumns)
 
 	def TestConnection(self) -> dict:
 		returnValue:dict = dict()
@@ -349,7 +406,7 @@ class TextClearData(IClearData):
 				returnValue.update({ "IsVirtual": ((filestat.st_file_attributes & stat.FILE_ATTRIBUTE_VIRTUAL) == stat.FILE_ATTRIBUTE_VIRTUAL) })
 
 	@staticmethod
-	def GetTextFileFormatConfig(format:TextFileFormat = TextFileFormat.CommaWithHeader):
+	def GetTextFileFormatConfig(format:TextFileFormat = TextFileFormat.Delimited):
 		fieldDelimiter:str = ","
 		rowDelimiter:str = "\n"
 		includeHeader:bool = True
@@ -386,51 +443,20 @@ class TextClearData(IClearData):
 
 	@staticmethod
 	def ConvertFixedWidthToDelimited(
-			fixedWidthFilePath:Path, fixedWidthConfig:dict,
-			delimitedFilePath:Path, delimitedFormat:TextFileFormat = TextFileFormat.CommaWithHeader, trimValues:bool = True):
-		fieldDelimiter, rowDelimiter, includeHeader = TextClearData.GetTextFileFormatConfig(delimitedFormat)
-		lines:list[str] = list[str]()
-		if (includeHeader):
-			values:list[str] = list[str]()
-			for fieldKey in fixedWidthConfig.keys():
-				values.append(fieldKey)
-			lines.append(fieldDelimiter.join(values))
-		for lineText in fixedWidthFilePath.read_text().splitlines():
-			values:list[str] = list[str]()
-			for fieldKey in fixedWidthConfig.keys():
-				begin:int = fixedWidthConfig[fieldKey]["Begin"]
-				end:int = fixedWidthConfig[fieldKey]["End"]
-				if (trimValues):
-					values.append(lineText[(begin-1):end].strip())
-				else:
-					values.append(lineText[(begin-1):end])
-			lines.append(fieldDelimiter.join(values))
-		delimitedFilePath.write_text(rowDelimiter.join(lines))
+			fixedWidthFilePath:Path, fixedWidthColumns:FixedWidthFileColumns,
+			delimitedFilePath:Path, delimitedConfig:DelimitedFileConfig):
+		fixedBulkData = TextBulkData(filePath=fixedWidthFilePath, format=TextFileFormat.FixedWidth, delimitedConfig=None, fixedWidthColumns=fixedWidthColumns)
+		delimitedBulkData = TextBulkData(filePath=delimitedFilePath, format=TextFileFormat.Delimited, delimitedConfig=delimitedConfig, fixedWidthColumns=None)
+		delimitedBulkData.WriteDataTable(fixedBulkData.GetDataTable())
 
 	@staticmethod
 	def ConvertDelimitedToFixedWidth(
-			fixedWidthFilePath:Path, fixedWidthConfig:dict,
-			delimitedFilePath:Path, delimitedFormat:TextFileFormat = TextFileFormat.CommaWithHeader):
-		fieldDelimiter, rowDelimiter, includeHeader = TextClearData.GetTextFileFormatConfig(delimitedFormat)
-		fixedWidthKeyList = list(fixedWidthConfig.keys())
-		lines:list[str] = list[str]()
-		with open(delimitedFilePath, "r") as file:
-			csvReader = csv.reader(file, delimiter=fieldDelimiter, lineterminator=rowDelimiter)
-			for rowIndex, rowValues in enumerate(csvReader):
-				if (len(fixedWidthKeyList) != len(rowValues)):
-					raise IndexError()
-				if (includeHeader and rowIndex == 0):
-					pass
-				else:
-					print(f"Row: {rowIndex}")
-					values:list[str] = list[str]()
-					for columnIndex, columnValue in enumerate(rowValues):
-						begin:int = fixedWidthConfig[fixedWidthKeyList[columnIndex]]["Begin"]
-						end:int = fixedWidthConfig[fixedWidthKeyList[columnIndex]]["End"]
-						legnth:int = (end - begin) + 1
-						values.append(str(columnValue).ljust(legnth))
-					lines.append("".join(values))
-		if (len(lines) > 0):
-			fixedWidthFilePath.write_text("\n".join(lines))
+			fixedWidthFilePath:Path, fixedWidthColumns:FixedWidthFileColumns,
+			delimitedFilePath:Path, delimitedConfig:DelimitedFileConfig):
+		fixedBulkData = TextBulkData(filePath=fixedWidthFilePath, format=TextFileFormat.FixedWidth, delimitedConfig=None, fixedWidthColumns=fixedWidthColumns)
+		delimitedBulkData = TextBulkData(filePath=delimitedFilePath, format=TextFileFormat.Delimited, delimitedConfig=delimitedConfig, fixedWidthColumns=None)
+		fixedBulkData.WriteDataTable(delimitedBulkData.GetDataTable())
 
-__all__ = ["TextFileFormat", "TextBulkData", "TextQueries", "TextClearData"]
+__all__ = ["FixedWidthJustification", "TextFileFormat", "TextFileQuoting",
+			"DelimitedFileConfig", "FixedWidthFileColumn", "FixedWidthFileColumns",
+			"TextQueries", "TextBulkData", "TextClearData"]
